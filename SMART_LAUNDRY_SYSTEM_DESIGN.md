@@ -169,6 +169,71 @@ Real-time hall-level view:
 - **Policy Engine:** penalties, restrictions, escalation triggers.
 - **AI Assistant Service:** natural-language message variants, admin digest summaries.
 
+### 4.4 Where the AI Agent Lives (Explicit Agent Design)
+The AI is not just a label on notifications; it is a dedicated **Agent Layer** with bounded authority and clear tools.
+
+#### A) Agent Roles
+1. **Orchestrator Agent (LLM + Rules wrapper)**
+   - Interprets events (`cycle_completed`, no-response, queue timeout).
+   - Selects next action plan using policy constraints.
+   - Never overrides hard hostel rules (caps, penalties, escalation thresholds).
+
+2. **Communication Agent**
+   - Generates channel-aware, language-aware messages (English/Hindi/Hinglish).
+   - Chooses tone based on severity (reminder vs warning vs final).
+   - Produces Twilio voice text for TTS call flows.
+
+3. **Queue Decision Agent (Hybrid ML + deterministic constraints)**
+   - Computes live candidate ranking based on fairness score.
+   - Applies deterministic filters first (restriction, overlaps, no-show lock).
+   - Emits explainable reason code: `LOW_VIOLATION`, `UNDER_USED`, `EARLY_BOOKING`, `EMERGENCY`.
+
+4. **Risk & Violation Prediction Agent**
+   - Predicts probability of delayed pickup before cycle completion.
+   - Pre-emptively nudges high-risk users near cycle end.
+   - Sends admin early-warning summaries for high-risk windows.
+
+#### B) Agent Boundaries (Guardrails)
+- LLM can **recommend**, but **Policy Engine decides** when penalties/reassignments happen.
+- Reassignment, token deductions, and suspension always require rule-evaluable predicates.
+- All agent outputs are logged with `decision_trace_id` for auditability.
+
+#### C) Agent Tool Interface
+- `get_booking_context(booking_id)`
+- `get_machine_state(machine_id)`
+- `get_queue_candidates(machine_id)`
+- `send_notification(channel, template, user_id, metadata)`
+- `place_voice_call(user_id, script_id)`
+- `apply_policy_action(action_type, booking_id, reason_code)`
+- `log_decision(trace_payload)`
+
+#### D) Agent Decision State Machine
+```text
+STATE: CYCLE_COMPLETED
+  -> Action: Notify owner T+0
+  -> Wait for clearance signal
+
+STATE: WAITING_T_PLUS_5
+  -> Action: Reminder
+
+STATE: WAITING_T_PLUS_10
+  -> Action: Warning + Voice call agent
+
+STATE: WAITING_T_PLUS_15
+  -> Condition check: machine_cleared?
+       yes -> close booking
+       no  -> apply violation + queue reassignment flow
+
+STATE: WAITING_T_PLUS_30
+  -> Action: escalate to admin + floor rep
+```
+
+#### E) Why this is truly “AI Agent-based”
+- Uses LLM for context-aware communication and escalation summarization.
+- Uses ML for behavior/risk prediction and congestion-aware slot suggestions.
+- Uses agentic planning for multi-step actions (notify -> call -> reassign -> escalate).
+- Keeps high-stakes actions deterministic via policy guardrails.
+
 ---
 
 ## 5) Database Schema (Core Tables)
